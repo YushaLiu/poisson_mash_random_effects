@@ -10,7 +10,7 @@ editor_options:
 
 
 ## Simulation procedure
-To simulate single cell data, we start with a subset of the single cell cytokines data, which include 1) 2,096 cells from $R=25$ conditions from the second batch, and 2) 5,081 genes that have at least 100 total counts over these 25 conditions. We remove genes that have relatively few reads because we will add treatment and/or individual sample effects to the data via thinning. 
+To simulate single cell data, we start with a subset of the single cell cytokines data, which include 1) 2,096 B cells from $R=25$ conditions from the second batch, and 2) 5,081 genes that have at least 100 total counts over these 25 conditions. We remove genes that have relatively few reads because we will add treatment and/or individual sample effects to the data via thinning. 
 
 ### Individual sample effect
 Starting with the real dataset, we randomly permute the cells with respect to the condition labels to create null data. Then we use thinning to add individual sample effect $\eta_j \sim MVN(0, \: \psi_j^2 I_R)$ to all genes. We simulate $\psi_j$ from the set $\log_2(\exp(1))*\{0.001, 0.05, 0.1, 0.2\}$ with probablity $\{0.3, 0.4, 0.2, 0.1\}$, which resembles the empirical distribution of $\psi_j$ we see from the poisson mash fit to the real dataset.
@@ -39,7 +39,7 @@ We consider the following three scenarios regarding the addition of treatment ef
 
 \noindent Scenario 2. Treatment effect is added to $500$ genes randomly chosen from the genes with relatively high expression (> 70 percentile). The effect size $w_j$ is drawn from the set $\{\log_2(1.5), \log_2(2), \log_2(2.5), \log_2(3)\}$ with probability $\{0.2, 0.5, 0.2, 0.1\}$, and further added an $N(0, 0.1^2)$ noise on top of that.
 
-\noindent Scenario 3. Treatment effect is added to $500$ genes randomly chosen from the genes with relatively lower expression levels (35 ~ 70 percentile). The effect size $w_j$ is drawn from the set $\{\log_2(2), \log_2(3), \log_2(4), \log_2(5)\}$ with probability $\{0.3, 0.4, 0.2, 0.1\}$, and further added an $N(0, 0.1^2)$ noise on top of that.
+\noindent Scenario 3. Treatment effect is added to $500$ genes randomly chosen from the genes with relatively low expression levels (35 ~ 70 percentile). The effect size $w_j$ is drawn from the set $\{\log_2(2), \log_2(3), \log_2(4), \log_2(5)\}$ with probability $\{0.3, 0.4, 0.2, 0.1\}$, and further added an $N(0, 0.1^2)$ noise on top of that.
 
 
 ## Scenario 1 (no treatment effect)
