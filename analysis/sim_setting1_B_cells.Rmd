@@ -1,0 +1,339 @@
+---
+title: "Application of poisson mash and mash to simulated single cell data (setting 1)"
+author: "Yusha Liu"
+header-includes:
+date: "2020-11-1"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+
+## Model
+Suppose there are $j=1, \dots, J$ genes and $r=1, \dots, R$ conditions. We are interested in comparing gene expressions across conditions $r$ for each gene $j$ in a single cell dataset.
+
+### Mash with random effects
+Mash works with normalized single cell data, which are processed from raw data after normalization by cell-specific sequencing depth and log transformation. For each gene $j$, denote the observed effect estimate from condition $r$ by $\hat{b}_{jr}$, and the corresponding standard error estimate by $s_{jr}$. We assume the following model:
+\begin{align} 
+\hat{b}_j \sim & \; N\left(\mu_j 1 + \theta_j, \: \text{diag}(s_j^2) \right), \\
+\theta_j = & \; \beta_j + \eta_j, \\
+\quad \beta_j \sim & \; \sum_{k,l} \pi_{kl} N(0, \: w_l U_k)  \quad \text{where} \; \sum_{k,l} \pi_{kl} = 1,  \\
+\eta_j \sim & \; N(0,  \: \psi_j^2 I). \\
+\end{align} 
+ 
+That is, the gene-specific, condition-specific effects $\theta_j$ can be separated into a treatment effect term $\beta_j$ and an individual sample effect term $\eta_j$. The parameters to be estimated in this model are gene-specific means $\mu$, gene-specific variances of the individual effect term $\psi^2$, the data-driven prior covariance matrices $U_k$ on the treatment effect $\beta_j$, and the prior weights $\pi$ on different prior covariance matrices. 
+
+
+### Poisson mash with random effects
+Poisson mash directly works with single cell count data. For each gene $j$, denote the sum of counts over all cells from condition $r$ by $X_{jr}$.  Let $s_r$ denote the sequencing depth of condition $r$, a constant that is proportional to $\sum_{j=1}^{J} X_{jr}$. We assume the following model:
+\begin{align} 
+X_{jr} \sim & \; Pois(s_r \lambda_{jr}), \\
+\log(\lambda_{jr}) = & \; \mu_j + \theta_{jr}, \\
+\theta_j = & \; \beta_j + \eta_j, \\
+\quad \beta_j \sim & \; \sum_{k,l} \pi_{kl} N(0, w_l U_k)  \quad \text{where} \;\; \sum_{k,l} \pi_{kl} = 1, \\
+\eta_j \sim & \; N(0, \psi_j^2 I). \\
+\end{align} 
+
+
+## Simulation procedure
+To simulate single cell data, we start with a subset of the single cell cytokines data, which include 1) 15,705 cells from $R=25$ conditions from the second batch, and 2) 9,194 genes that have at least 100 total counts over these 25 conditions. We remove genes that have relatively few reads because we will add treatment and/or individual sample effects to the data via thinning. 
+
+### Individual sample effect
+Starting with the real dataset, we randomly permute the cells with respect to the condition labels to create null data. Then we use thinning to add individual sample effect $\eta_j \sim MVN(0, \: \psi_j^2 I_R)$ to all genes. We simulate $\psi_j$ from the set $\log_2(\exp(1))*\{0.001, 0.05, 0.1, 0.2\}$ with probablity $\{0.3, 0.4, 0.2, 0.1\}$, which resembles the empirical distribution of $\psi_j$ we see from the poisson mash fit to the real dataset.
+
+### Treatment effect
+We also use thinning to add treatment effect $\beta_j \sim \sum_{k=1}^3 \pi_k MVN(0, w_j^2 U_k)$. The prior covariances $U_k$'s are learned from the poisson mash fit to the original dataset and are given as follows (all $U_k$'s are rank-1 matrices and can be expressed as $U_k = u_k u_k'$), with the prior weights $\pi_1 = 0.5, \pi_2=0.25, \pi_3=0.25$. We simulate the effect size $w_j^2$ to be realistic and to yield reasonable ROC curves (as shown later). 
+
+```{r warning=FALSE, message=FALSE}
+# conditions and colors
+cols.trt <- readRDS("output/B_cells/condition_colors.Rds")
+trts <- names(cols.trt)
+ulist.sim <- readRDS("output/B_cells/ulist_sim.rds")
+
+for (k in 1:3){
+  v <- ulist.sim$ulist[[k]]
+  
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.75, col = cols.trt, las = 2,
+          main = paste0("u", k, ": weight ", ulist.sim$pi.u[k]))
+}
+
+```
+
+We consider the following three scenarios regarding the addition of treatment effects. For each scenario, we simulate 5 single cell datasets. 
+
+\noindent Scenario 1. No treatment effect is added.
+
+\noindent Scenario 2. Treatment effect is added to $500$ genes randomly chosen from the genes with relatively high expression (> 50 percentile). The effect size $w_j$ is drawn from the set $\{\log_2(1.5), \log_2(2), \log_2(2.5), \log_2(3)\}$ with probability $\{0.2, 0.5, 0.2, 0.1\}$, and further added an $N(0, 0.1^2)$ noise on top of that.
+
+\noindent Scenario 3. Treatment effect is added to $500$ genes randomly chosen from the genes with relatively lower expression levels (25 ~ 50 percentile). The effect size $w_j$ is drawn from the set $\{\log_2(2), \log_2(3), \log_2(4), \log_2(5)\}$ with probability $\{0.4, 0.3, 0.2, 0.1\}$, and further added an $N(0, 0.1^2)$ noise on top of that.
+
+
+## Scenario 1 (no treatment effect)
+```{r warning=FALSE, message=FALSE}
+res <- readRDS("output/B_cells/simulations1/null_random_effects_summary.Rds")
+
+### run time of poisson with random effects
+res$runtime.pois.fit
+
+### run time of mash with random effects
+res$runtime.mash.fit
+
+### false positives found by poisson mash with random effects
+res$num.effects.pois
+
+### false positives found by mash with random effects
+res$num.effects.mash
+
+```
+
+
+## Scenario 2 (treatment effect added to highly expressed genes)
+```{r warning=FALSE, message=FALSE}
+res <- readRDS("output/B_cells/simulations1/sim_signal_upr_summary.Rds")
+alpha <- res$alpha
+
+### run time of poisson with random effects
+res$runtime.pois.fit
+
+### run time of mash with random effects
+res$runtime.mash.fit
+
+### look at the FDR for identifying units at alpha=0.05
+res$fdr.pois[,alpha==0.05]
+res$fdr.mash[,alpha==0.05]
+
+### look at the FSR for identifying unit-condition pairs at alpha=0.05
+res$fsr.pair.pois[,alpha==0.05]
+res$fsr.pair.mash[,alpha==0.05]
+
+```
+
+```{r warning=FALSE, message=FALSE}
+### plot ROC for detecting non-null units 
+par(mfrow=c(2,3))
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("All units: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr1.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Units from u1: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr1.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr2.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Units from u2: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr2.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr3.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Units from u3: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr3.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+```
+
+```{r warning=FALSE, message=FALSE}
+### plot ROC for detecting non-null unit-condition pairs 
+par(mfrow=c(2,3))
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("All pairs: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr1.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Pairs from u1: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr1.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr2.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Pairs from u2: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr2.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr3.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Pairs from u3: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr3.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+```
+
+
+## Scenario 3 (treatment effect added to lowly expressed genes)
+```{r warning=FALSE, message=FALSE}
+res <- readRDS("output/B_cells/simulations1/sim_signal_lwr_summary.Rds")
+alpha <- res$alpha
+
+### run time of poisson with random effects
+res$runtime.pois.fit
+
+### run time of mash with random effects
+res$runtime.mash.fit
+
+### look at the FDR for identifying units at alpha=0.05
+res$fdr.pois[,alpha==0.05]
+res$fdr.mash[,alpha==0.05]
+
+### look at the FSR for identifying unit-condition pairs at alpha=0.05
+res$fsr.pair.pois[,alpha==0.05]
+res$fsr.pair.mash[,alpha==0.05]
+
+```
+
+```{r warning=FALSE, message=FALSE}
+### plot ROC for detecting non-null units 
+par(mfrow=c(2,3))
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("All units: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr1.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Units from u1: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr1.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr2.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Units from u2: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr2.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.mash[iter,] , res$tpr3.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Units from u3: iter", iter))
+  lines(res$fpr.pois[iter,], res$tpr3.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+```
+
+```{r warning=FALSE, message=FALSE}
+### plot ROC for detecting non-null unit-condition pairs 
+par(mfrow=c(2,3))
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("All pairs: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr1.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Pairs from u1: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr1.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr2.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Pairs from u2: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr2.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+plot.new()
+
+for (iter in 1:5){
+  plot(res$fpr.pair.mash[iter,] , res$tpr3.pair.mash[iter,], type="l", xlim=c(0, 0.2), ylim=c(0, 1), 
+       xlab="False positive rate", ylab="True positive rate", main=paste0("Pairs from u3: iter", iter))
+  lines(res$fpr.pair.pois[iter,], res$tpr3.pair.pois[iter,], lty=4, col="magenta")
+  if(iter %% 5 ==1)
+  {
+    legend("bottomright", legend=c("mash + re", "pois mash + re"), text.col=c("black", "magenta"), col=c("black", "magenta"), lty=c(1,4), bty="n")
+  }
+}
+
+```

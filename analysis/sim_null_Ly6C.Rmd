@@ -1,0 +1,116 @@
+---
+title: "Explorations of false positives found by poisson mash in simulated single cell data under the null"
+author: "Yusha Liu"
+header-includes:
+date: "2020-11-1"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Simulation procedure
+We apply poisson mash and mash to single cell data simulated under the null. More specifically, we start with a subset of the single cell cytokines data from Ly6C- monocytes, which include 1) 1,879 cells from 25 conditions from the second batch, and 2) 6,794 genes that have at least 100 total counts over these 25 conditions. Then we randomly permute the cells with respect to the condition labels so that there no longer exists association between gene expression levels and conditions. 
+
+We consider two different ways to simulate null data based on the real dataset: 
+
+1). apply the same permutation to all the genes, so the correlation among genes is preserved on the permuted dataset; 
+
+2). apply independent and different permutation to each gene, so the correlation among genes is no longer preserved on the permuted dataseat.
+
+For each of the scenarios described above, we simulate 5 single cell datasets. 
+
+For scenario 1), the number of false positives are $98, 78, 160, 92, 160$ for poisson mash, and $2, 2, 2, 2, 4$ for fixed effects-based mash.
+
+For scenario 2), the number of false positives are $11, 12, 14, 12, 16$ for poisson mash, and $3, 2, 4, 2, 0$ for fixed effects-based mash.
+
+
+## Exploration of FPs found by poisson mash in scenario 1)
+```{r warning=FALSE, message=FALSE}
+library(Matrix)
+library(pheatmap)
+library(gridExtra)
+
+### for one replicate dataset, load in the raw single cell count data and the poisson mash fit
+data <- readRDS("output/Ly6C-/sim_null/raw_data3.Rds")
+fit <- readRDS("output/Ly6C-/sim_null/ed_rep_3.Rds")
+res <- readRDS("output/Ly6C-/sim_null/pois_mash_fit_rep_3.Rds")
+post <- readRDS("output/Ly6C-/sim_null/pois_mash_posterior_rep_3.Rds")
+
+### look at the posterior weights of the genes identified (which are all false positives) 
+genes <- which(apply(post$lfsr, 1, min) < 0.05)
+wlist <- c(1e-3, 2.5e-3, 5e-3, 1e-2, 2e-2, 4e-2, 8e-2, 0.16, 0.32, 0.64, 1, 2, 4, 8, 16, 25, 36, 50)
+Ulist <- c(names(fit$Ulist), paste0("e_", 1:25), names(fit$ulist))
+zeta.max <- rep(NA, length(genes))
+
+for(j in 1:length(genes)){
+  zeta <- matrix(res$Ez[genes[j],], ncol=length(wlist), byrow = TRUE)
+  zeta.max[j] <- Ulist[which.max(rowSums(zeta))]
+}
+
+table(zeta.max)
+
+```
+
+```{r warning=FALSE, message=FALSE}
+### plot the top eigenvector capturing the predominant effect-sharing patterns
+cols.trt <- readRDS("output/Ly6C-/condition_colors.Rds")
+trts <- names(cols.trt)
+R <- length(trts)
+
+eig.tPCA <- eigen(fit$Ulist[[1]])
+pve.tPCA <- eig.tPCA$values/sum(eig.tPCA$values)
+
+v <- eig.tPCA$vectors[,1]
+  
+barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+        main = paste0(names(fit$Ulist)[1], ": weight ", round(fit$pi[1],3), ":\nEigenvector ", 1, " (pve = ", round(pve.tPCA[1],3), ")"))
+
+```
+
+```{r warning=FALSE, message=FALSE}
+### identified genes for which the data-driven tPCA has the largest weight 
+gene.list <- genes[zeta.max=="tPCA"]
+
+### for this subset of genes, compute the gene-wise correlation across all cells
+data.sub <- as.matrix(data[gene.list,])
+corr.sub <- cor(t(data.sub))
+
+pheatmap(corr.sub, cluster_rows=FALSE, cluster_cols=FALSE, fontsize_row=4, fontsize_col=4, main="Gene-wise correlation for the identified genes \n (largest weight: tPCA)")
+
+
+### for a randomly chosen subset of genes of the same size, compute the gene-wise correlation across all cells
+set.seed(100)
+data.tmp <- as.matrix(data[sample(1:nrow(data), length(gene.list), replace=FALSE),])
+corr.tmp <- cor(t(as.matrix(data.tmp)))
+
+pheatmap(corr.tmp, cluster_rows=FALSE, cluster_cols=FALSE, fontsize_row=4, fontsize_col=4, main="Gene-wise correlation for a randomly chosen set of genes")
+
+```
+
+
+
+## Explore why such strong correlation can happen for genes in single cell data
+```{r warning=FALSE, message=FALSE}
+### perform hierarchical clustering of this subset of genes based on pairwise correlation
+hcluster <- hclust(as.dist(1-corr.sub), method="complete")
+plot(hcluster, cex=0.5, xlab="clustering based on correlation matrix")
+
+### look at the gene names
+rownames(corr.sub)[hcluster$order]
+
+### identify a subset of genes that are strongly correlated with each other
+idx.cluster <- hcluster$order[12:38]
+corr.cluster <- corr.sub[idx.cluster, idx.cluster]
+pheatmap(corr.cluster, cluster_rows=FALSE, cluster_cols=FALSE, fontsize_row=6, fontsize_col=6, 
+         main="Gene-wise correlation for this subset of 27 genes")
+
+```
+
+
+
+## Findings
+\noindent 1. The [scatter plots](https://github.com/YushaLiu/poisson_mash_random_effects/blob/master/output/Ly6C-/sim_null/scatterplots.pdf), which plot the raw single cell count data for every pair of genes in this subset, suggest that the single cell data are strongly correlated for this subset of genes. 
+
+\noindent 2. The [scatter plots](https://github.com/YushaLiu/poisson_mash_random_effects/blob/master/output/Ly6C-/sim_null/scatterplots_norm.pdf), which plot the normalized single cell data for every pair of genes in this subset, suggest that the normalized data fed into mash are much less correlated for this subset of genes. 
+
+\noindent 3. The [scatter plots](https://github.com/YushaLiu/poisson_mash_random_effects/blob/master/output/Ly6C-/sim_null/plots.pdf), which compare the observed and expected counts for each condition in this null dataset, suggest consistent effect-sharing patterns across this subset of genes.   

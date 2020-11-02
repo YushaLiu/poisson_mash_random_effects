@@ -9,3 +9,12 @@ editor_options:
 ---
 
 Welcome to my research website.
+
+
+## Exploration of false positives found by poisson mash
+Click on this [link](sim_null_Ly6C.html) to see explorations of false positives found by poisson mash in simulated single cell data under the null, based on cytokines data from Ly6C- cells.
+
+
+## Simulation based on cytokines dataset from B cells
+Click on this [link](sim_setting1_B_cells.html) to see simulation results based on single cell data (~15,000 single cells). <br/>
+Click on this [link](sim_setting3_B_cells.html) to see simulation results based on single cell data (~2,000 single cells).
