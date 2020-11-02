@@ -1,7 +1,7 @@
-name: "poisson_mash_random_effects"
+name: poisson_mash_random_effects
 output_dir: ../docs
 navbar:
-  title: "poisson_mash_random_effects"
+  title: poisson_mash_random_effects
   left:
   - text: Home
     href: index.html
@@ -9,6 +9,10 @@ navbar:
     href: about.html
   - text: License
     href: license.html
+  right:
+  - icon: fa-github
+    text: Source code
+    href: https://github.com/YushaLiu/poisson_mash_random_effects
 output:
   workflowr::wflow_html:
     toc: yes
