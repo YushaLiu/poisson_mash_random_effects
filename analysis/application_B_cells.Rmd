@@ -1,0 +1,224 @@
+---
+title: "Application of poisson mash and mash to single cell cytokines data (B cells)"
+author: "Yusha Liu"
+header-includes:
+date: "2020-11-5"
+output: workflowr::wflow_html
+editor_options:
+  chunk_output_type: console
+---
+
+## Summary
+We apply poisson mash and mash to a subset of the single cell cytokines dataset, which include gene expresion data of $15,705$ B cells from $R=25$ conditions (i.e., different cytokine treatments) in the second batch. We apply both methods to the $9,968$ genes with at least $50$ reads across all cells. 
+
+```{r warning=FALSE, message=FALSE}
+cols.trt <- readRDS("output/B_cells/condition_colors.Rds")
+trts <- names(cols.trt)
+
+```
+
+## Poisson mash
+We apply poisson mash to the $9,968 \times 25$ count data matrix $X$, where $X_{jr}$ represents the total counts of gene $j$ in all cells from condition $r$. To estimate the data-driven prior covariances $U_k$, we fit the poisson mash model without scaling parameters $w_l$ to a subset of genes ($\tilde{J} = 1,964$) that are differentially expressed across conditions, which are identified based on a conditional multinomial goodness-of-fit test. Two versions of ED step are fitted, depending on whether we restrict the vectors $u_g$ forming the rank-1 data-driven prior covariances $U_g = u_g u_g'$ to have the same sign across conditions or not. 
+
+### Compare the ELBOs in the ED step (constrained vs unconstrained)
+```{r warning=FALSE, message=FALSE}
+## load in the ED results
+pois.ed <- readRDS("output/B_cells/pois_ed_orig1.Rds")
+pois.ed.v2 <- readRDS("output/B_cells/pois_ed_orig1_constrained.Rds")
+
+## running time per iteration in ED
+pois.ed$runtime/length(pois.ed$ELBO)
+pois.ed.v2$runtime/length(pois.ed.v2$ELBO)
+                      
+## look at the ELBO
+plot(pois.ed$ELBO, xlab = "niter", ylab = "elbo", main="Fitting ED step in Poisson mash")
+lines(pois.ed.v2$ELBO, col="red", lty=4)
+legend("bottomright", legend=c("unconstrained", "constrained"), text.col=c("black", "red"), 
+       col=c("black", "red"), lty=c(1,4), bty="n")
+
+```
+
+
+### Look at the ELBOs in the model fitting step (constrained vs unconstrained)
+```{r warning=FALSE, message=FALSE}
+## load in the poisson mash fit results
+pois.res <- readRDS("output/B_cells/pois_mash_fit_orig1.Rds")
+pois.res.v2 <- readRDS("output/B_cells/pois_mash_fit_orig1_constrained.Rds")
+
+## running time for fitting poisson mash to all genes
+pois.res$runtime
+pois.res.v2$runtime
+
+## look at ELBO
+plot(pois.res$ELBO, xlab = "niter", ylab = "elbo", main="Fitting Poisson mash to all genes")
+lines(pois.res.v2$ELBO, col="red", lty=4)
+legend("bottomright", legend=c("unconstrained", "constrained"), text.col=c("black", "red"), 
+       col=c("black", "red"), lty=c(1,4), bty="n")
+
+
+## compute the weights of different prior covariances
+wlist <- c(1e-4, 1e-3, 2.5e-3, 5e-3, 1e-2, 2e-2, 4e-2, 8e-2, 0.16, 0.32, 0.64, 1, 2, 4, 8, 16, 25, 36)
+
+pi.mat <- matrix(pois.res$pi, ncol=length(wlist), byrow=TRUE)
+rownames(pi.mat) <- c(names(pois.ed$Ulist), paste0("e_", 1:25), names(pois.ed$ulist))
+colnames(pi.mat) <- paste0("w=", wlist)
+
+pi.mat.v2 <- matrix(pois.res.v2$pi, ncol=length(wlist), byrow=TRUE)
+rownames(pi.mat.v2) <- c(names(pois.ed.v2$Ulist), paste0("e_", 1:25), names(pois.ed.v2$ulist))
+colnames(pi.mat.v2) <- paste0("w=", wlist)
+
+```
+
+
+### Estimate of data-driven covariances (unconstrained)
+```{r warning=FALSE, message=FALSE}
+### Estimate of eigenvectors of the data-driven covariance initialized by rank-5 PCA
+eig.tPCA <- eigen(pois.ed$Ulist[[1]])
+pve.tPCA <- eig.tPCA$values/sum(eig.tPCA$values)
+
+par(mfrow=c(2,2))
+
+for (k in 1:4){
+  v <- eig.tPCA$vectors[,k]
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(pois.ed$Ulist)[1], ": weight ", round(rowSums(pi.mat)[1],3), 
+                                 ":\nEigenvector ", k, " (pve = ", round(pve.tPCA[k],3), ")"))
+}
+
+### Estimate of eigenvectors of rank-1 data-driven covariance matrices
+for (k in 1:4){
+  v <- as.numeric(pois.ed$ulist[[k]])
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(pois.ed$ulist)[k], ": weight ", round(rowSums(pi.mat)[27+k],3)))
+}
+
+```
+
+
+### Estimate of data-driven covariances (constrained)
+```{r warning=FALSE, message=FALSE}
+### Estimate of eigenvectors of the data-driven covariance initialized by rank-5 PCA
+eig.tPCA <- eigen(pois.ed.v2$Ulist[[1]])
+pve.tPCA <- eig.tPCA$values/sum(eig.tPCA$values)
+
+par(mfrow=c(2,2))
+
+for (k in 1:4){
+  v <- eig.tPCA$vectors[,k]
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(pois.ed.v2$Ulist)[1], ": weight ", round(rowSums(pi.mat.v2)[1],3), 
+                                 ":\nEigenvector ", k, " (pve = ", round(pve.tPCA[k],3), ")"))
+}
+
+### Estimate of eigenvectors of rank-1 data-driven covariance matrices
+for (k in 1:4){
+  v <- as.numeric(pois.ed.v2$ulist[[k]])
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(pois.ed.v2$ulist)[k], ": weight ", round(rowSums(pi.mat.v2)[27+k],3)))
+}
+
+```
+
+
+
+## Mash with random effects
+We then fit mash with gene-specific means and random effects to the $9,968 \times 25$ matrix of point estimates and standard errors, which are calculated from the normalized single cell data.  To estimate the data-driven prior covariances $U_k$, we fit mash without scaling parameters $w_l$ to a subset of genes ($\tilde{J} = 1,544$) that are differentially expressed across conditions, which are defined here as genes for which $\max_r |Z_{jr}| \geq 3.5$. Two versions of ED step are fitted, depending on whether we restrict the vectors $u_g$ forming the rank-1 data-driven prior covariances $U_g = u_g u_g'$ to have the same sign across conditions or not. 
+
+### Compare the log likelihood in the ED step (constrained vs unconstrained)
+```{r warning=FALSE, message=FALSE}
+## load in the ED results
+mash.ed <- readRDS("output/B_cells/mash_ed_orig1.Rds")
+mash.ed.v2 <- readRDS("output/B_cells/mash_ed_orig1_constrained.Rds")
+
+## running time per iteration in ED
+mash.ed$runtime/length(mash.ed$llik)
+mash.ed.v2$runtime/length(mash.ed.v2$llik)
+                      
+## look at the log likelihood
+plot(mash.ed$llik, xlab = "niter", ylab = "log likelihood", main="Fitting ED step in mash with random effects")
+lines(mash.ed.v2$llik, col="red", lty=4)
+legend("bottomright", legend=c("unconstrained", "constrained"), text.col=c("black", "red"), 
+       col=c("black", "red"), lty=c(1,4), bty="n")
+
+```
+
+
+### Look at the log likelihood in the model fitting step (constrained vs unconstrained)
+```{r warning=FALSE, message=FALSE}
+## load in the mash fit results
+mash.res <- readRDS("output/B_cells/mash_fit_orig1.Rds")
+mash.res.v2 <- readRDS("output/B_cells/mash_fit_orig1_constrained.Rds")
+
+## running time for fitting poisson mash to all genes
+mash.res$runtime
+mash.res.v2$runtime
+
+## look at the log likelihood
+plot(mash.res$llik, xlab = "niter", ylab = "log likelihood", main="Fitting mash with random effects to all genes")
+lines(mash.res.v2$llik, col="red", lty=4)
+legend("bottomright", legend=c("unconstrained", "constrained"), text.col=c("black", "red"), 
+       col=c("black", "red"), lty=c(1,4), bty="n")
+
+
+## compute the weights of different prior covariances
+wlist <- c(1e-6, 4e-6, 1e-5, 4e-5, 1e-4, 2.5e-4, 5e-4, 1e-3, 2.5e-3, 5e-3, 1e-2, 2e-2, 4e-2, 8e-2, 0.16, 0.32)
+
+pi.mat <- matrix(mash.res$pi, ncol=length(wlist), byrow=TRUE)
+rownames(pi.mat) <- c(names(mash.ed$Ulist), paste0("e_", 1:25), names(mash.ed$ulist))
+colnames(pi.mat) <- paste0("w=", wlist)
+
+pi.mat.v2 <- matrix(mash.res.v2$pi, ncol=length(wlist), byrow=TRUE)
+rownames(pi.mat.v2) <- c(names(mash.ed.v2$Ulist), paste0("e_", 1:25), names(mash.ed.v2$ulist))
+colnames(pi.mat.v2) <- paste0("w=", wlist)
+
+```
+
+
+### Estimate of data-driven covariances (unconstrained)
+```{r warning=FALSE, message=FALSE}
+### Estimate of eigenvectors of the data-driven covariance initialized by rank-5 PCA
+eig.tPCA <- eigen(mash.ed$Ulist[[1]])
+pve.tPCA <- eig.tPCA$values/sum(eig.tPCA$values)
+
+par(mfrow=c(2,2))
+
+for (k in 1:4){
+  v <- eig.tPCA$vectors[,k]
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(mash.ed$Ulist)[1], ": weight ", round(rowSums(pi.mat)[1],3), 
+                                 ":\nEigenvector ", k, " (pve = ", round(pve.tPCA[k],3), ")"))
+}
+
+### Estimate of eigenvectors of rank-1 data-driven covariance matrices
+for (k in 1:4){
+  v <- as.numeric(mash.ed$ulist[[k]])
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(mash.ed$ulist)[k], ": weight ", round(rowSums(pi.mat)[27+k],3)))
+}
+
+```
+
+
+### Estimate of data-driven covariances (constrained)
+```{r warning=FALSE, message=FALSE}
+### Estimate of eigenvectors of the data-driven covariance initialized by rank-5 PCA
+eig.tPCA <- eigen(mash.ed.v2$Ulist[[1]])
+pve.tPCA <- eig.tPCA$values/sum(eig.tPCA$values)
+
+par(mfrow=c(2,2))
+
+for (k in 1:4){
+  v <- eig.tPCA$vectors[,k]
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(mash.ed.v2$Ulist)[1], ": weight ", round(rowSums(pi.mat.v2)[1],3), 
+                                 ":\nEigenvector ", k, " (pve = ", round(pve.tPCA[k],3), ")"))
+}
+
+### Estimate of eigenvectors of rank-1 data-driven covariance matrices
+for (k in 1:4){
+  v <- as.numeric(mash.ed.v2$ulist[[k]])
+  barplot(v/v[which.max(abs(v))], names = names(cols.trt), cex.names = 0.4, las = 2, col = cols.trt,
+          main = paste0(names(mash.ed.v2$ulist)[k], ": weight ", round(rowSums(pi.mat.v2)[27+k],3)))
+}
+
+```

@@ -18,3 +18,7 @@ Click on this [link](sim_null_Ly6C.html) to see explorations of false positives 
 ## Simulation based on cytokines dataset from B cells
 Click on this [link](sim_setting1_B_cells.html) to see simulation results based on single cell data (~15,000 single cells). <br/>
 Click on this [link](sim_setting3_B_cells.html) to see simulation results based on single cell data (~2,000 single cells).
+
+
+## Comparison of unconstrained vs constrained estimation of rank-1 prior covariances in the ED step
+Click on this [link](application_B_cells.html) to see comparison of unconstrained vs constrained estimation of rank-1 prior covariances in the ED step, when applying poisson mash and mash with random effects to single cell data (~15,000 single cells).
